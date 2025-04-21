@@ -1,7 +1,9 @@
 package http1
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/cloudwego/hertz/pkg/app"
@@ -67,6 +69,12 @@ type ServerTransHandler interface {
 	SetPipeline(pipeline *remote.TransPipeline)
 	SetInvokeHandleFunc(endpoint.Endpoint)
 	OnActive(ctx context.Context, conn net.Conn) (context.Context, error)
+}
+
+type JsonResponse struct {
+	Code    int32       `json:"code"`
+	Message string      `json:"message"`
+	Data    interface{} `json:"data,omitempty"`
 }
 
 var httpPattern = regexp.MustCompile(`^(?:GET |POST|PUT|DELE|HEAD|OPTI|CONN|TRAC|PATC)$`)
@@ -175,31 +183,63 @@ func (h *HTTP1Handler) Read(ctx context.Context, conn net.Conn, msg remote.Messa
 
 // 将 Kitex RPC 返回结果封装为标准 HTTP JSON 响应
 func (h *HTTP1Handler) Write(ctx context.Context, conn net.Conn, msg remote.Message) (context.Context, error) {
-	// TODO 1: 判断调用结果是正常返回还是异常
-	// - msg.RPCInfo().Invocation().BizStatusError() != nil → 业务异常
-	// - msg.RPCInfo().Stats().Error() != nil → 框架异常
+	// 1: 判断调用结果是正常返回还是异常
+	var (
+		code    int32
+		message string
+		data    interface{}
+	)
+	rpcInfo := msg.RPCInfo()
+	if bizErr := rpcInfo.Invocation().BizStatusErr(); bizErr != nil {
+		code = bizErr.BizStatusCode()
+		message = bizErr.BizMessage()
+		data = nil
+	} else if sysErr := rpcInfo.Stats().Error(); sysErr != nil {
+		code = 500
+		message = "internal error"
+		data = nil
+	} else {
+		code = 200
+		message = "success"
+		data = msg.Data()
+	}
 
-	// TODO 2: 构造标准 JSON 响应结构：
-	// {
-	//   "code": 200,
-	//   "message": "success",
-	//   "data": { ... } // Thrift 返回 struct 的 JSON 表达
-	// }
+	// 2: 构造标准 JSON 响应结构：
+	resp := JsonResponse{
+		Code:    code,
+		Message: message,
+		Data:    data,
+	}
 
-	// TODO 3: 根据错误类型构造不同 code/message：
-	// - 正常调用：code = 0, message = "success"
-	// - BizError：code = 自定义错误码, message = 错误提示
-	// - 系统异常：code = 500, message = "internal error"
+	// 3: 根据错误类型构造不同 code/message：
+	jsonBody, err := json.Marshal(resp)
+	if err != nil {
+		// 如果 JSON 编码失败（极少见，一般是结构体含非法类型）
+		// 构造兜底 JSON 响应，防止崩溃
+		jsonBody = []byte(`{"code":500,"message":"json encode error","data":null}`)
+	}
 
-	// TODO 4: 通过 json.Marshal(...) 将响应 struct 编码为 []byte
+	// 4: 构造 HTTP 响应头 响应头：HTTP/1.1 200 OK + Content-Type: application/json + Content-Length
+	var buf bytes.Buffer
 
-	// TODO 5: 构造完整 HTTP Response：
-	// - 响应头：HTTP/1.1 200 OK + Content-Type: application/json + Content-Length
+	// 写响应行和头部
+	buf.WriteString("HTTP/1.1 200 OK\r\n")
+	buf.WriteString("Content-Type: application/json\r\n")
+	buf.WriteString(fmt.Sprintf("Content-Length: %d\r\n", len(jsonBody)))
+	buf.WriteString("Connection: keep-alive\r\n")
+
+	// 空行分隔 header 和 body
+	buf.WriteString("\r\n")
+	// 5: 构造完整 HTTP 响应字符串
 	// - 响应体：json 数据
+	buf.Write(jsonBody)
 
-	// TODO 6: 写入 conn（用 conn.Write(...) 输出响应）
-
-	// ✅ 最终效果：HTTP 客户端收到标准 JSON 格式响应，与 REST 服务一致
+	// 6: 写入 conn（用 conn.Write(...) 输出响应）
+	_, err = conn.Write(buf.Bytes())
+	if err != nil {
+		return nil, err
+	}
+	// 最终效果：HTTP 客户端收到标准 JSON 格式响应，与 REST 服务一致
 	return ctx, nil
 }
 
