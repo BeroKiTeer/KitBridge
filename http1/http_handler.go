@@ -126,7 +126,7 @@ func (h *HTTP1Handler) Read(ctx context.Context, conn net.Conn, msg remote.Messa
 	// TODO 3: 读取 JSON Body
 	// - 根据 Content-Length，使用 reader.Next(n) 精确读取 n 字节
 	// - 支持 UTF-8 JSON 编码内容
-	var contentLen uin64
+	var contentLen int
 	_, err = fmt.Sscanf(headers["Content-Length"], "%d", &contentLen)
 	if err != nil {
 		return ctx, err
