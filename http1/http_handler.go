@@ -130,7 +130,7 @@ func (h *HTTP1Handler) Write(ctx context.Context, conn netpoll.Conn, msg remote.
 
 	// TODO 2: 构造标准 JSON 响应结构：
 	// {
-	//   "code": 0,
+	//   "code": 200,
 	//   "message": "success",
 	//   "data": { ... } // Thrift 返回 struct 的 JSON 表达
 	// }
