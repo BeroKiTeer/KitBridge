@@ -124,7 +124,7 @@ func (h *HTTP1Handler) ProtocolMatch(ctx context.Context, conn net.Conn) error {
 // 解析 HTTP 请求并转为 Kitex RPC 调用
 func (h *HTTP1Handler) Read(ctx context.Context, conn net.Conn, msg remote.Message) (context.Context, error) {
 	// ---------------------------------------------------------
-	// ✅ TODO 1: 利用 parser.parseRequestLine() 解析请求行
+	// 1: 利用 parser.parseRequestLine() 解析请求行
 	// - 获取 method / serviceName / methodName
 	// - 校验 path 格式为 /api/{Service}/{Method}
 	// ---------------------------------------------------------
@@ -139,16 +139,16 @@ func (h *HTTP1Handler) Read(ctx context.Context, conn net.Conn, msg remote.Messa
 		return ctx, fmt.Errorf("failed to parse request line: %w", err)
 	}
 	// ---------------------------------------------------------
-	// ✅ TODO 2: 利用 parser.parseHeaders() 获取 Header Map
+	// 2: 利用 parser.parseHeaders() 获取 Header Map
 	// - Content-Length 字段必须存在且合法
 	// - 所有 header 存入 headers map[string]string
 	// ---------------------------------------------------------
-	headers, contentLength, err := parseHeaders(reader)
+	_, contentLength, err := parseHeaders(reader)
 	if err != nil {
 		return ctx, fmt.Errorf("failed to parse headers: %w", err)
 	}
 	// ---------------------------------------------------------
-	// ✅ TODO 3: 利用 reader.Next(n) 精准读取 JSON body
+	// 3: 利用 reader.Next(n) 精准读取 JSON body
 	// - Content-Length 决定 body 大小
 	// - 返回值为 []byte 类型 JSON
 	// ---------------------------------------------------------
@@ -160,13 +160,7 @@ func (h *HTTP1Handler) Read(ctx context.Context, conn net.Conn, msg remote.Messa
 		return ctx, fmt.Errorf("failed to read body: %w", err)
 	}
 	// ---------------------------------------------------------
-	// ✅ TODO 4: 将 path/header 映射为 Kitex 元信息
-	// - msg.SetMessageType(remote.Call)
-	// - rpcInfo.Invocation().SetServiceName(...)
-	// - msg.TransInfo().PutTransIntInfo(map[uint16]string{...})
-	// ---------------------------------------------------------
-	// 设置调用类型为 Call
-	// 设置为 RPC 请求类型
+	// 4: 将 path/header 映射为 Kitex 元信息
 	msg.SetMessageType(remote.Call)
 
 	// 将 service 和 method 注入到 TransInfo 中
@@ -182,27 +176,13 @@ func (h *HTTP1Handler) Read(ctx context.Context, conn net.Conn, msg remote.Messa
 		msg.TransInfo().PutTransStrInfo(metaMap)
 	}
 
-	// ---------------------------------------------------------
-	// ✅ TODO 5: JSON body → Thrift 请求 struct
-	// - 根据 methodName 手动匹配结构体类型（硬编码或注册表）
-	// - 通过 json.Unmarshal 反序列化
-	// - 调用 msg.SetArgs(&reqStruct)
-	// ---------------------------------------------------------
-	var args interface{}
-
-	switch methodName {
-	case "testSTReq":
-		args = &stability.STRequest{}
-	default:
-		return ctx, fmt.Errorf("unsupported method: %s", methodName)
-	}
+	// 5: JSON body → Thrift 请求 struct
+	args := msg.Data().(*stability.STRequest)
 
 	// JSON 反序列化
 	if err := json.Unmarshal(bodyBytes, args); err != nil {
 		return ctx, fmt.Errorf("failed to unmarshal body to thrift args: %w", err)
 	}
-	// TODO: 设置请求参数
-	// msg.setArgs(args)
 
 	return ctx, nil
 }
