@@ -140,7 +140,7 @@ func (h *HTTP1Handler) Read(ctx context.Context, conn netpoll.Conn, msg remote.M
 		transmeta.ToService: serviceName,
 		transmeta.ToMethod:  interfaceName,
 	}
-	transInfo.PutTransStrInfo(hd)
+	transInfo.PutTransIntInfo(hd)
 
 	if metainfo.HasMetaInfo(ctx) {
 		hd := make(map[string]string)
