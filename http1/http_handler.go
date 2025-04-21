@@ -9,6 +9,50 @@ import (
 	"regexp"
 )
 
+// +------------------------------------------------------------+
+// |                      TCP 连接进入                         |
+// +------------------------------------------------------------+
+//                             |
+//                             v
+// +------------------------------------------------------------+
+// | detection.NewSvrTransHandlerFactory                        |  // ✅ 关键路径 1：协议嗅探工厂注册
+// | - 注册 Thrift 默认处理器（netpoll）                         |
+// | - 注册支持 ProtocolMatch 的 HTTP1HandlerFactory             |
+// +------------------------------------------------------------+
+//                             |
+//                 +-----------+------------+
+//                 |                        |
+//       [Thrift 请求]             [HTTP 请求（如 POST /api/...）]
+//                 |                        |
+//                 v                        v
+//     +--------------------+       +-------------------------+
+//     | ThriftHandler      |       | HTTP1Handler            |   // ✅ 关键路径 2：ProtocolMatch 实现判断是否为 HTTP
+//     +--------------------+       +-------------------------+
+//                                         |
+//                                         v
+//   +-----------------------------------------------------------------+
+//   | Read(ctx, conn, msg)                                            |  // ✅ 关键路径 3：解析 HTTP 请求体
+//   | - 读取 HTTP 请求数据                                             |
+//   | - 解析请求行 /api/Service/Method → 设置 msg.ServiceName/Method |
+//   | - 解析 JSON Body → Thrift struct → 设置 msg.Args                |
+//   | - TODO: 解析 Header/Query 参数 → 映射至字段（关键路径 5）         |
+//   | - 设置 msg.MessageType = remote.Call                           |
+//   | - 调用 h.handler(ctx, msg) 执行 Kitex 调用链（关键路径 7）       |
+//   +-----------------------------------------------------------------+
+//                                         |
+//                                         v
+//                        +----------------------------------+
+//                        | Kitex RPC 服务逻辑（如 testSTReq）|
+//                        +----------------------------------+
+//                                         |
+//                                         v
+//   +-----------------------------------------------------------------+
+//   | Write(ctx, conn, msg)                                           |  // ✅ 关键路径 4 & 6：统一响应封装
+//   | - 判断是否为 BizError / 系统异常                                 |
+//   | - 构造响应 JSON：{code, message, data}                         |
+//   | - 设置 HTTP Header（Content-Type、Length）并写回 conn           |
+//   +-----------------------------------------------------------------+
+
 type ServerTransHandler interface {
 	Read(ctx context.Context, conn net.Conn, msg remote.Message) (context.Context, error)
 	Write(ctx context.Context, conn net.Conn, msg remote.Message) (context.Context, error)
