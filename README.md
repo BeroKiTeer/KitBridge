@@ -1,15 +1,22 @@
-# KitBridge
+# 🌉 KitBridge - Kitex 多协议融合网关实现说明
 
-
-## 描述
-
-这是Kitext的插件
+本项目为 CloudWeGo 2025 黑客松赛题《Kitex 多协议融合网关》的参考实现，目标是让 Kitex 服务端同时支持原生 Thrift RPC 与 HTTP/1.1 请求，并具备高性能、无侵入、标准化的协议融合能力。
 
 ## 技术目标
 
 扩展Kitex框架，使其服务端能同时原生支持Thrift RPC和HTTP RESTful协议，需完成以下核心功能：
 
-### 核心功能要求
+## 📌 实现目标对照表（核心功能要求）
+
+| 编号 | 题目要求                             | 我们的实现方案                      | 完成状态 |
+|------|--------------------------------------|-------------------------------------|----------|
+| ✅ 1 | 协议智能识别                         | 使用 `detection.NewSvrTransHandlerFactory` 构建嗅探器工厂，结合 `ProtocolMatch()` 实现基于 `netpoll.Connection.Reader().Peek()` 的快速识别 | ✅ 已完成 |
+| ✅ 2 | HTTP 路径映射到 Thrift 方法          | 支持标准 RESTful 映射 `/api/Service/Method`，在 `Read()` 中解析路径并填入 `msg.SetServiceName/Method` | ✅ 已完成 |
+| ✅ 3 | JSON Body → Thrift 请求结构体        | `Read()` 中通过 `json.Unmarshal` 自动反序列化请求体为 Thrift 请求 struct | ✅ 已完成 |
+| ✅ 4 | Header / Query 参数绑定              | IDL 中使用 `api.query` / `api.header`，即将实现 `binder.go` 解析 Tag 映射至 struct 字段 | ⏳ 规划中 |
+| ✅ 5 | 错误处理标准化：JSON 三段式响应结构 | `Write()` 中规划封装为 `{code, message, data}` 响应，兼容 REST 错误语义 | ⏳ 待完成 |
+| ✅ 6 | 保持 Kitex 中间件兼容性              | 使用 `SetInvokeHandleFunc()` 绑定框架 handler，确保中间件链保持完整 | ✅ 已完成 |
+| ✅ 7 | Streaming 支持（Bonus）              | 当前未实现，但结构支持 HTTP chunk 扩展，未来可补充 server streaming | ⏳ 预留扩展点 |
 
 #### 协议只能识别层
 
