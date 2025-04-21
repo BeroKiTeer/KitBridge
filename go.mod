@@ -3,7 +3,7 @@ module github.com/BeroKiTeer/KitBridge
 go 1.23.5
 
 require (
-	github.com/bytedance/gopkg v0.1.2 // indirect
+	github.com/bytedance/gopkg v0.1.2
 	github.com/bytedance/sonic v1.13.2 // indirect
 	github.com/bytedance/sonic/loader v0.2.4 // indirect
 	github.com/cloudwego/base64x v0.1.5 // indirect
@@ -26,6 +26,7 @@ require (
 )
 
 require (
+	github.com/cloudwego/hertz v0.9.7
 	github.com/cloudwego/kitex/pkg/protocol/bthrift v0.0.0-20250417024059-c8e83650e01c
 	github.com/stretchr/testify v1.9.0
 )

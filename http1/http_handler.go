@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"github.com/bytedance/gopkg/cloud/metainfo"
+	hertzHttp1 "github.com/cloudwego/hertz/pkg/protocol/http1"
 	"github.com/cloudwego/kitex/pkg/endpoint"
 	"github.com/cloudwego/kitex/pkg/remote"
 	"github.com/cloudwego/kitex/pkg/remote/transmeta"
 	"github.com/cloudwego/netpoll"
+	"net"
 	"regexp"
 )
 
@@ -58,15 +60,15 @@ import (
 //   +-----------------------------------------------------------------+
 
 type ServerTransHandler interface {
-	Read(ctx context.Context, conn netpoll.Conn, msg remote.Message) (context.Context, error)
-	Write(ctx context.Context, conn netpoll.Conn, msg remote.Message) (context.Context, error)
-	OnRead(ctx context.Context, conn netpoll.Conn) error
-	OnInactive(ctx context.Context, conn netpoll.Conn)
-	OnError(ctx context.Context, err error, conn netpoll.Conn)
+	Read(ctx context.Context, conn net.Conn, msg remote.Message) (context.Context, error)
+	Write(ctx context.Context, conn net.Conn, msg remote.Message) (context.Context, error)
+	OnRead(ctx context.Context, conn net.Conn) error
+	OnInactive(ctx context.Context, conn net.Conn)
+	OnError(ctx context.Context, err error, conn net.Conn)
 	OnMessage(ctx context.Context, args, result remote.Message) (context.Context, error)
 	SetPipeline(pipeline *remote.TransPipeline)
 	SetInvokeHandleFunc(endpoint.Endpoint)
-	OnActive(ctx context.Context, conn netpoll.Conn) (context.Context, error)
+	OnActive(ctx context.Context, conn net.Conn) (context.Context, error)
 }
 
 var httpPattern = regexp.MustCompile(`^(GET|POST|PUT|HEAD|DELETE|OPTIONS|TRACE|CONNECT|PATCH)`)
@@ -79,7 +81,7 @@ func (f *HTTP1SvrTransHandlerFactory) NewTransHandler(opt *remote.ServerOption) 
 
 type HTTP1Handler struct{}
 
-func (h *HTTP1Handler) ProtocolMatch(ctx context.Context, conn netpoll.Conn) error {
+func (h *HTTP1Handler) ProtocolMatch(ctx context.Context, conn net.Conn) error {
 	buf := make([]byte, 8)
 	n, err := conn.Read(buf)
 	if err != nil {
@@ -92,7 +94,12 @@ func (h *HTTP1Handler) ProtocolMatch(ctx context.Context, conn netpoll.Conn) err
 }
 
 // 解析 HTTP 请求并转为 Kitex RPC 调用
-func (h *HTTP1Handler) Read(ctx context.Context, conn netpoll.Conn, msg remote.Message) (context.Context, error) {
+func (h *HTTP1Handler) Read(ctx context.Context, conn net.Conn, msg remote.Message) (context.Context, error) {
+
+	hertzConn := newConn(conn, 1024)
+	hertzServer := hertzHttp1.NewServer()
+	hertzServer.Serve(ctx, hertzConn)
+
 	// TODO 1: 读取并解析 HTTP 请求行（Request Line）
 	// - 使用 reader.ReadLine() 读取第一行
 	// - 拆分为 Method / Path / HTTP Version
@@ -151,6 +158,7 @@ func (h *HTTP1Handler) Read(ctx context.Context, conn netpoll.Conn, msg remote.M
 	// TODO 5: JSON Body → Thrift 请求结构体
 	// - 通过反序列化 body 为对应的 Thrift struct（如 STRequest）
 	// - 需要根据 methodName 匹配对应结构体（可 hardcode，或未来通过注册表动态派发）
+	msg.Pa
 
 	// TODO 6: 将请求参数设置为 RPC Args
 	// - msg.SetArgs(&reqStruct)
@@ -160,7 +168,7 @@ func (h *HTTP1Handler) Read(ctx context.Context, conn netpoll.Conn, msg remote.M
 }
 
 // 将 Kitex RPC 返回结果封装为标准 HTTP JSON 响应
-func (h *HTTP1Handler) Write(ctx context.Context, conn netpoll.Conn, msg remote.Message) (context.Context, error) {
+func (h *HTTP1Handler) Write(ctx context.Context, conn net.Conn, msg remote.Message) (context.Context, error) {
 	// TODO 1: 判断调用结果是正常返回还是异常
 	// - msg.RPCInfo().Invocation().BizStatusError() != nil → 业务异常
 	// - msg.RPCInfo().Stats().Error() != nil → 框架异常
@@ -189,13 +197,13 @@ func (h *HTTP1Handler) Write(ctx context.Context, conn netpoll.Conn, msg remote.
 	return ctx, nil
 }
 
-func (h *HTTP1Handler) OnRead(ctx context.Context, conn netpoll.Conn) error {
+func (h *HTTP1Handler) OnRead(ctx context.Context, conn net.Conn) error {
 	return nil
 }
 
-func (h *HTTP1Handler) OnInactive(ctx context.Context, conn netpoll.Conn) {}
+func (h *HTTP1Handler) OnInactive(ctx context.Context, conn net.Conn) {}
 
-func (h *HTTP1Handler) OnError(ctx context.Context, err error, conn netpoll.Conn) {}
+func (h *HTTP1Handler) OnError(ctx context.Context, err error, conn net.Conn) {}
 
 func (h *HTTP1Handler) OnMessage(ctx context.Context, args, result remote.Message) (context.Context, error) {
 	return ctx, nil
@@ -205,6 +213,6 @@ func (h *HTTP1Handler) SetPipeline(pipeline *remote.TransPipeline) {}
 
 func (h *HTTP1Handler) SetInvokeHandleFunc(endpoint endpoint.Endpoint) {}
 
-func (h *HTTP1Handler) OnActive(ctx context.Context, conn netpoll.Conn) (context.Context, error) {
+func (h *HTTP1Handler) OnActive(ctx context.Context, conn net.Conn) (context.Context, error) {
 	return ctx, nil
 }
