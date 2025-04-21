@@ -1,15 +1,16 @@
 package http1
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/cloudwego/hertz/pkg/app"
-	hertzHttp1 "github.com/cloudwego/hertz/pkg/protocol/http1"
+	"github.com/bytedance/gopkg/cloud/metainfo"
 	"github.com/cloudwego/kitex/pkg/endpoint"
 	"github.com/cloudwego/kitex/pkg/remote"
+	"github.com/cloudwego/kitex/pkg/remote/transmeta"
 	"github.com/cloudwego/kitex/pkg/serviceinfo"
 	"github.com/cloudwego/netpoll"
 	"net"
@@ -120,83 +121,68 @@ func (h *HTTP1Handler) ProtocolMatch(ctx context.Context, conn net.Conn) error {
 
 // 解析 HTTP 请求并转为 Kitex RPC 调用
 func (h *HTTP1Handler) Read(ctx context.Context, conn net.Conn, msg remote.Message) (context.Context, error) {
-	fmt.Printf("-------------------------------+++++")
-	hertzConn := newConn(conn, 1024)
-	hertzServer := hertzHttp1.NewServer()
-	err := hertzServer.Serve(ctx, hertzConn)
+	// TODO 1: 读取并解析 HTTP 请求行（Request Line）
+	// - 使用 reader.ReadLine() 读取第一行
+	// - 拆分为 Method / Path / HTTP Version
+	// - 校验 Path 是否为 /api/Service/Method 结构
+	// - 拆解出 serviceName 和 methodName
+	// - 示例：POST /api/STService/testSTReq HTTP/1.1
+	bufReader := bufio.NewReader(conn)
+	reader := netpoll.NewReader(bufReader)
+	method, serviceName, interfaceName, err := parseRequestLine(reader)
 	if err != nil {
 		return ctx, err
 	}
-	c := hertzServer.Core.GetCtxPool().Get().(*app.RequestContext)
-	err = c.BindAndValidate(msg.Data())
 
+	// TODO 2: 循环读取 Header（直到遇到空行 \r\n\r\n）
+	// - 使用 reader.ReadLine() 读取每一行
+	// - 按照 key: value 拆解 Header 并存入 map[string]string
+	// - 特别提取 Content-Length 作为读取 Body 的依据
+	// - 可选：支持大小写 Header 名字 normalize 或关闭
+	headers, contentLength, err := parseHeaders(reader)
 	if err != nil {
 		return ctx, err
 	}
-	fmt.Printf("Hello")
-	//// TODO 1: 读取并解析 HTTP 请求行（Request Line）
-	//// - 使用 reader.ReadLine() 读取第一行
-	//// - 拆分为 Method / Path / HTTP Version
-	//// - 校验 Path 是否为 /api/Service/Method 结构
-	//// - 拆解出 serviceName 和 methodName
-	//// - 示例：POST /api/STService/testSTReq HTTP/1.1
-	//bufReader := bufio.NewReader(conn)
-	//reader := netpoll.NewReader(bufReader)
-	//method, serviceName, interfaceName, err := parseRequestLine(reader)
-	//if err != nil {
-	//	return ctx, err
-	//}
-	//
-	//// TODO 2: 循环读取 Header（直到遇到空行 \r\n\r\n）
-	//// - 使用 reader.ReadLine() 读取每一行
-	//// - 按照 key: value 拆解 Header 并存入 map[string]string
-	//// - 特别提取 Content-Length 作为读取 Body 的依据
-	//// - 可选：支持大小写 Header 名字 normalize 或关闭
-	//headers, contentLength, err := parseHeaders(reader)
-	//if err != nil {
-	//	return ctx, err
-	//}
 	//
 	//// TODO 3: 读取 JSON Body
 	//// - 根据 Content-Length，使用 reader.Next(n) 精确读取 n 字节
 	//// - 支持 UTF-8 JSON 编码内容
-	//var contentLen int
-	//_, err = fmt.Sscanf(headers["Content-Length"], "%d", &contentLen)
-	//if err != nil {
-	//	return ctx, err
-	//}
-	//bs, err := reader.Next(contentLen)
-	//if err != nil {
-	//	return ctx, err
-	//}
-	//
-	//// TODO 4: 将 Path 和 Header 映射为 Kitex 元信息
-	//// - msg.SetServiceName(serviceName)
-	//// - msg.SetMethod(methodName)
-	//// - msg.SetMessageType(remote.Call)
-	//msg.SetMessageType(remote.Call)
-	//transInfo := msg.TransInfo()
-	//ri := msg.RPCInfo()
-	//hd := map[uint16]string{
-	//	transmeta.ToService: serviceName,
-	//	transmeta.ToMethod:  interfaceName,
-	//}
-	//transInfo.PutTransIntInfo(hd)
-	//
-	//if metainfo.HasMetaInfo(ctx) {
-	//	hd := make(map[string]string)
-	//	metainfo.SaveMetaInfoToMap(ctx, hd)
-	//	transInfo.PutTransStrInfo(hd)
-	//}
-	//
+	var contentLen int
+	_, err = fmt.Sscanf(headers["Content-Length"], "%d", &contentLen)
+	if err != nil {
+		return ctx, err
+	}
+	bs, err := reader.Next(contentLen)
+	if err != nil {
+		return ctx, err
+	}
+
+	// TODO 4: 将 Path 和 Header 映射为 Kitex 元信息
+	// - msg.SetServiceName(serviceName)
+	// - msg.SetMethod(methodName)
+	// - msg.SetMessageType(remote.Call)
+	msg.SetMessageType(remote.Call)
+	transInfo := msg.TransInfo()
+	ri := msg.RPCInfo()
+	hd := map[uint16]string{
+		transmeta.ToService: serviceName,
+		transmeta.ToMethod:  interfaceName,
+	}
+	transInfo.PutTransIntInfo(hd)
+
+	if metainfo.HasMetaInfo(ctx) {
+		hd := make(map[string]string)
+		metainfo.SaveMetaInfoToMap(ctx, hd)
+		transInfo.PutTransStrInfo(hd)
+	}
+
 	//// TODO 5: JSON Body → Thrift 请求结构体
 	//// - 通过反序列化 body 为对应的 Thrift struct（如 STRequest）
 	//// - 需要根据 methodName 匹配对应结构体（可 hardcode，或未来通过注册表动态派发）
-	//msg.Pa
-	//
+
 	//// TODO 6: 将请求参数设置为 RPC Args
 	//// - msg.SetArgs(&reqStruct)
-	//
+
 	//// ✅ 最终效果：msg 包含完整 Thrift 调用上下文，Kitex 将自动执行 handler
 	return ctx, nil
 }
