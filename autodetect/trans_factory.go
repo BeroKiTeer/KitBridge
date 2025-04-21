@@ -45,7 +45,7 @@ import (
 // ====================================================================
 
 // 简单的HTTP请求行识别
-var httpPattern = regexp.MustCompile(`^(GET|POST|PUT|HEAD|DELETE|OPTIONS|TRACE|CONNECT|PATCH)`)
+var httpPattern = regexp.MustCompile(`^(?:GET |POST|PUT|DELE|HEAD|OPTI|CONN|TRAC|PATC)$`)
 
 // NewSvrTransHandlerFactoryWithHTTP ✅ 推荐入口函数：从 main.go 调用
 // - 只需传入 HTTP handler 工厂，Thrift handler 使用 Kitex 默认的 netpoll 实现

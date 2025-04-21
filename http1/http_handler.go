@@ -8,6 +8,7 @@ import (
 	hertzHttp1 "github.com/cloudwego/hertz/pkg/protocol/http1"
 	"github.com/cloudwego/kitex/pkg/endpoint"
 	"github.com/cloudwego/kitex/pkg/remote"
+	"github.com/cloudwego/netpoll"
 	"net"
 	"regexp"
 )
@@ -68,7 +69,7 @@ type ServerTransHandler interface {
 	OnActive(ctx context.Context, conn net.Conn) (context.Context, error)
 }
 
-var httpPattern = regexp.MustCompile(`^(GET|POST|PUT|HEAD|DELETE|OPTIONS|TRACE|CONNECT|PATCH)`)
+var httpPattern = regexp.MustCompile(`^(?:GET |POST|PUT|DELE|HEAD|OPTI|CONN|TRAC|PATC)$`)
 
 type HTTP1SvrTransHandlerFactory struct{}
 
@@ -79,15 +80,14 @@ func (f *HTTP1SvrTransHandlerFactory) NewTransHandler(opt *remote.ServerOption) 
 type HTTP1Handler struct{}
 
 func (h *HTTP1Handler) ProtocolMatch(ctx context.Context, conn net.Conn) error {
-	buf := make([]byte, 8)
-	n, err := conn.Read(buf)
-	if err != nil {
-		return err
+	c, ok := conn.(netpoll.Connection)
+	if ok {
+		pre, _ := c.Reader().Peek(4)
+		if httpPattern.Match(pre) {
+			return nil
+		}
 	}
-	if httpPattern.Match(buf[:n]) {
-		return nil
-	}
-	return errors.New("not http")
+	return errors.New("error protocol not match")
 }
 
 // 解析 HTTP 请求并转为 Kitex RPC 调用
