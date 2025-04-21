@@ -5,8 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/bytedance/gopkg/cloud/metainfo"
 	"github.com/cloudwego/kitex/pkg/endpoint"
 	"github.com/cloudwego/kitex/pkg/remote"
+	"github.com/cloudwego/kitex/pkg/remote/transmeta"
 	"github.com/cloudwego/netpoll"
 	"regexp"
 )
@@ -132,7 +134,20 @@ func (h *HTTP1Handler) Read(ctx context.Context, conn netpoll.Conn, msg remote.M
 	// - msg.SetMethod(methodName)
 	// - msg.SetMessageType(remote.Call)
 	msg.SetMessageType(remote.Call)
-	
+	transInfo := msg.TransInfo()
+	ri := msg.RPCInfo()
+	hd := map[uint16]string{
+		transmeta.ToService: serviceName,
+		transmeta.ToMethod:  interfaceName,
+	}
+	transInfo.PutTransStrInfo(hd)
+
+	if metainfo.HasMetaInfo(ctx) {
+		hd := make(map[string]string)
+		metainfo.SaveMetaInfoToMap(ctx, hd)
+		transInfo.PutTransStrInfo(hd)
+	}
+
 	// TODO 5: JSON Body → Thrift 请求结构体
 	// - 通过反序列化 body 为对应的 Thrift struct（如 STRequest）
 	// - 需要根据 methodName 匹配对应结构体（可 hardcode，或未来通过注册表动态派发）
