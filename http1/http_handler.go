@@ -89,30 +89,36 @@ func (h *HTTP1Handler) ProtocolMatch(ctx context.Context, conn netpoll.Conn) err
 
 // 解析 HTTP 请求并转为 Kitex RPC 调用
 func (h *HTTP1Handler) Read(ctx context.Context, conn netpoll.Conn, msg remote.Message) (context.Context, error) {
-	// TODO 1: 读取完整 HTTP 请求数据（包含 请求行、Header、Body）
-	// - 从 conn 读取
-	// - 可设置最大长度，避免内存攻击
+	// TODO 1: 读取并解析 HTTP 请求行（Request Line）
+	// - 使用 reader.ReadLine() 读取第一行
+	// - 拆分为 Method / Path / HTTP Version
+	// - 校验 Path 是否为 /api/Service/Method 结构
+	// - 拆解出 serviceName 和 methodName
+	// - 示例：POST /api/STService/testSTReq HTTP/1.1
 
-	// TODO 2: 解析 HTTP 请求行（例如：POST /api/STService/testSTReq HTTP/1.1）
-	// - 拆出 path，校验是否符合 REST 映射规则
-	// - 例如 /api/{Service}/{Method}
+	// TODO 2: 循环读取 Header（直到遇到空行 \r\n\r\n）
+	// - 使用 reader.ReadLine() 读取每一行
+	// - 按照 key: value 拆解 Header 并存入 map[string]string
+	// - 特别提取 Content-Length 作为读取 Body 的依据
+	// - 可选：支持大小写 Header 名字 normalize 或关闭
 
-	// TODO 3: 映射为 Kitex 调用目标
-	// - path → serviceName + methodName
-	// - 填入 msg.SetServiceName() 和 msg.SetMethod()
+	// TODO 3: 读取 JSON Body
+	// - 根据 Content-Length，使用 reader.Next(n) 精确读取 n 字节
+	// - 支持 UTF-8 JSON 编码内容
 
-	// TODO 4: 从 Header 中提取参数（支持 query/header 映射）
-	// - 可选：根据 IDL 的 tag 配置自动映射 Header → struct 字段
-
-	// TODO 5: 读取并解析 JSON Body → Thrift Request Struct
-	// - body -> json.Unmarshal() -> STRequest（通过 methodName 映射 struct）
-
-	// TODO 6: 将请求 struct 设置为 msg.Args
-	// - msg.SetArgs(&req)
+	// TODO 4: 将 Path 和 Header 映射为 Kitex 元信息
+	// - msg.SetServiceName(serviceName)
+	// - msg.SetMethod(methodName)
 	// - msg.SetMessageType(remote.Call)
 
-	// ✅ 最终效果：Kitex 调用链接收到服务名、方法名、请求 struct，可继续往下执行
+	// TODO 5: JSON Body → Thrift 请求结构体
+	// - 通过反序列化 body 为对应的 Thrift struct（如 STRequest）
+	// - 需要根据 methodName 匹配对应结构体（可 hardcode，或未来通过注册表动态派发）
 
+	// TODO 6: 将请求参数设置为 RPC Args
+	// - msg.SetArgs(&reqStruct)
+
+	// ✅ 最终效果：msg 包含完整 Thrift 调用上下文，Kitex 将自动执行 handler
 	return ctx, nil
 }
 

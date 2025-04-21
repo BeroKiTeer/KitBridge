@@ -47,10 +47,22 @@ import (
 // 简单的HTTP请求行识别
 var httpPattern = regexp.MustCompile(`^(GET|POST|PUT|HEAD|DELETE|OPTIONS|TRACE|CONNECT|PATCH)`)
 
-func NewSvrTransHandlerFactoryWithHTTP(httpHandlerFactory remote.ServerTransHandlerFactory) remote.ServerTransHandlerFactory {
+// NewSvrTransHandlerFactoryWithHTTP ✅ 推荐入口函数：从 main.go 调用
+// - 只需传入 HTTP handler 工厂，Thrift handler 使用 Kitex 默认的 netpoll 实现
+func NewSvrTransHandlerFactoryWithHTTP(
+	httpHandlerFactory remote.ServerTransHandlerFactory,
+) remote.ServerTransHandlerFactory {
 	thriftFactory := netpoll.NewSvrTransHandlerFactory()
+	return NewSvrTransHandlerFactory(thriftFactory, httpHandlerFactory)
+}
+
+// NewSvrTransHandlerFactory ✅ 更灵活版本：允许 main 显式指定 Thrift handler（如替换为 framed）
+func NewSvrTransHandlerFactory(
+	thriftHandlerFactory remote.ServerTransHandlerFactory,
+	httpHandlerFactory remote.ServerTransHandlerFactory,
+) remote.ServerTransHandlerFactory {
 	return detection.NewSvrTransHandlerFactory(
-		thriftFactory,
-		httpHandlerFactory, // 👈 放在这里，框架内部通过 ProtocolMatch 自动识别
+		thriftHandlerFactory,
+		httpHandlerFactory,
 	)
 }
