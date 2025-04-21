@@ -10,6 +10,7 @@ import (
 	hertzHttp1 "github.com/cloudwego/hertz/pkg/protocol/http1"
 	"github.com/cloudwego/kitex/pkg/endpoint"
 	"github.com/cloudwego/kitex/pkg/remote"
+	"github.com/cloudwego/kitex/pkg/serviceinfo"
 	"github.com/cloudwego/netpoll"
 	"net"
 	"regexp"
@@ -82,10 +83,20 @@ var httpPattern = regexp.MustCompile(`^(?:GET |POST|PUT|DELE|HEAD|OPTI|CONN|TRAC
 type HTTP1SvrTransHandlerFactory struct{}
 
 func (f *HTTP1SvrTransHandlerFactory) NewTransHandler(opt *remote.ServerOption) (remote.ServerTransHandler, error) {
-	return &HTTP1Handler{}, nil
+	return &HTTP1Handler{
+		svcInfo:     opt.TargetSvcInfo,
+		svcSearcher: opt.SvcSearcher,
+		opt:         opt,
+	}, nil
 }
 
-type HTTP1Handler struct{}
+type HTTP1Handler struct {
+	svcInfo     *serviceinfo.ServiceInfo
+	svcSearcher remote.ServiceSearcher
+	opt         *remote.ServerOption
+	transPipe   *remote.TransPipeline
+	handlerFunc endpoint.Endpoint
+}
 
 func (h *HTTP1Handler) ProtocolMatch(ctx context.Context, conn net.Conn) error {
 	c, ok := conn.(netpoll.Connection)
