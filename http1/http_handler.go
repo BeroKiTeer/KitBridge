@@ -1,8 +1,10 @@
 package http1
 
 import (
+	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"github.com/cloudwego/kitex/pkg/endpoint"
 	"github.com/cloudwego/kitex/pkg/remote"
 	"github.com/cloudwego/netpoll"
@@ -95,22 +97,42 @@ func (h *HTTP1Handler) Read(ctx context.Context, conn netpoll.Conn, msg remote.M
 	// - 校验 Path 是否为 /api/Service/Method 结构
 	// - 拆解出 serviceName 和 methodName
 	// - 示例：POST /api/STService/testSTReq HTTP/1.1
+	bufReader := bufio.NewReader(conn)
+	reader := netpoll.NewReader(bufReader)
+	method, serviceName, interfaceName, err := parseRequestLine(reader)
+	if err != nil {
+		return ctx, err
+	}
 
 	// TODO 2: 循环读取 Header（直到遇到空行 \r\n\r\n）
 	// - 使用 reader.ReadLine() 读取每一行
 	// - 按照 key: value 拆解 Header 并存入 map[string]string
 	// - 特别提取 Content-Length 作为读取 Body 的依据
 	// - 可选：支持大小写 Header 名字 normalize 或关闭
+	headers, contentLength, err := parseHeaders(reader)
+	if err != nil {
+		return ctx, err
+	}
 
 	// TODO 3: 读取 JSON Body
 	// - 根据 Content-Length，使用 reader.Next(n) 精确读取 n 字节
 	// - 支持 UTF-8 JSON 编码内容
+	var contentLen uin64
+	_, err = fmt.Sscanf(headers["Content-Length"], "%d", &contentLen)
+	if err != nil {
+		return ctx, err
+	}
+	bs, err := reader.Next(contentLen)
+	if err != nil {
+		return ctx, err
+	}
 
 	// TODO 4: 将 Path 和 Header 映射为 Kitex 元信息
 	// - msg.SetServiceName(serviceName)
 	// - msg.SetMethod(methodName)
 	// - msg.SetMessageType(remote.Call)
-
+	msg.SetMessageType(remote.Call)
+	
 	// TODO 5: JSON Body → Thrift 请求结构体
 	// - 通过反序列化 body 为对应的 Thrift struct（如 STRequest）
 	// - 需要根据 methodName 匹配对应结构体（可 hardcode，或未来通过注册表动态派发）
