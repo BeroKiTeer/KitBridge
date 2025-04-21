@@ -82,18 +82,27 @@ var httpPattern = regexp.MustCompile(`^(?:GET |POST|PUT|DELE|HEAD|OPTI|CONN|TRAC
 
 type HTTP1SvrTransHandlerFactory struct{}
 
+// NewTransHandler 是 Kitex 要求实现的工厂方法，用于创建一个 ServerTransHandler（即协议处理器）实例。
+// opt 参数是框架在初始化阶段提供的服务上下文信息，包括服务结构、配置、结果工厂等。
 func (f *HTTP1SvrTransHandlerFactory) NewTransHandler(opt *remote.ServerOption) (remote.ServerTransHandler, error) {
 	return &HTTP1Handler{
-		svcInfo:     opt.TargetSvcInfo,
+		// 表示当前服务的元信息（如服务名、方法名、IDL 等）
+		svcInfo: opt.TargetSvcInfo,
+		// 服务元信息查找器
 		svcSearcher: opt.SvcSearcher,
-		opt:         opt,
+		// 保存整个服务配置上下文（包含 Payload 编解码器、错误处理器等）
+		opt: opt,
 	}, nil
 }
 
 type HTTP1Handler struct {
-	svcInfo     *serviceinfo.ServiceInfo
+	// 当前服务的元信息（服务名、方法名、IDL 结构）
+	svcInfo *serviceinfo.ServiceInfo
+	// 按服务名查找 ServiceInfo 的查找器
 	svcSearcher remote.ServiceSearcher
-	opt         *remote.ServerOption
+	// 完整的 ServerOption 配置上下文，用于读取 Codec、错误处理、ResultProvider 等
+	opt *remote.ServerOption
+	// 在 SetPipeline() 中注入，用于调度 Read → OnMessage → Write 的框架处理管道
 	transPipe   *remote.TransPipeline
 	handlerFunc endpoint.Endpoint
 }
