@@ -3,6 +3,7 @@ package http1
 import (
 	"context"
 	"errors"
+	"fmt"
 	"github.com/cloudwego/hertz/pkg/app"
 	hertzHttp1 "github.com/cloudwego/hertz/pkg/protocol/http1"
 	"github.com/cloudwego/kitex/pkg/endpoint"
@@ -71,7 +72,7 @@ var httpPattern = regexp.MustCompile(`^(GET|POST|PUT|HEAD|DELETE|OPTIONS|TRACE|C
 
 type HTTP1SvrTransHandlerFactory struct{}
 
-func (f *HTTP1SvrTransHandlerFactory) NewTransHandler(opt *remote.ServerOption) (*HTTP1Handler, error) {
+func (f *HTTP1SvrTransHandlerFactory) NewTransHandler(opt *remote.ServerOption) (remote.ServerTransHandler, error) {
 	return &HTTP1Handler{}, nil
 }
 
@@ -91,21 +92,20 @@ func (h *HTTP1Handler) ProtocolMatch(ctx context.Context, conn net.Conn) error {
 
 // 解析 HTTP 请求并转为 Kitex RPC 调用
 func (h *HTTP1Handler) Read(ctx context.Context, conn net.Conn, msg remote.Message) (context.Context, error) {
-
+	fmt.Printf("-------------------------------+++++")
 	hertzConn := newConn(conn, 1024)
 	hertzServer := hertzHttp1.NewServer()
-
+	err := hertzServer.Serve(ctx, hertzConn)
+	if err != nil {
+		return ctx, err
+	}
 	c := hertzServer.Core.GetCtxPool().Get().(*app.RequestContext)
-	err := c.BindAndValidate(msg.Data())
+	err = c.BindAndValidate(msg.Data())
+
 	if err != nil {
 		return ctx, err
 	}
-
-	err = hertzServer.Serve(ctx, hertzConn)
-	if err != nil {
-		return ctx, err
-	}
-
+	fmt.Printf("Hello")
 	//// TODO 1: 读取并解析 HTTP 请求行（Request Line）
 	//// - 使用 reader.ReadLine() 读取第一行
 	//// - 拆分为 Method / Path / HTTP Version
