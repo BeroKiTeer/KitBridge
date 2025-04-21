@@ -5,7 +5,7 @@ import (
 	"errors"
 	"github.com/cloudwego/kitex/pkg/endpoint"
 	"github.com/cloudwego/kitex/pkg/remote"
-	"net"
+	"github.com/cloudwego/netpoll"
 	"regexp"
 )
 
@@ -54,28 +54,28 @@ import (
 //   +-----------------------------------------------------------------+
 
 type ServerTransHandler interface {
-	Read(ctx context.Context, conn net.Conn, msg remote.Message) (context.Context, error)
-	Write(ctx context.Context, conn net.Conn, msg remote.Message) (context.Context, error)
-	OnRead(ctx context.Context, conn net.Conn) error
-	OnInactive(ctx context.Context, conn net.Conn)
-	OnError(ctx context.Context, err error, conn net.Conn)
+	Read(ctx context.Context, conn netpoll.Conn, msg remote.Message) (context.Context, error)
+	Write(ctx context.Context, conn netpoll.Conn, msg remote.Message) (context.Context, error)
+	OnRead(ctx context.Context, conn netpoll.Conn) error
+	OnInactive(ctx context.Context, conn netpoll.Conn)
+	OnError(ctx context.Context, err error, conn netpoll.Conn)
 	OnMessage(ctx context.Context, args, result remote.Message) (context.Context, error)
 	SetPipeline(pipeline *remote.TransPipeline)
 	SetInvokeHandleFunc(endpoint.Endpoint)
-	OnActive(ctx context.Context, conn net.Conn) (context.Context, error)
+	OnActive(ctx context.Context, conn netpoll.Conn) (context.Context, error)
 }
 
 var httpPattern = regexp.MustCompile(`^(GET|POST|PUT|HEAD|DELETE|OPTIONS|TRACE|CONNECT|PATCH)`)
 
 type HTTP1SvrTransHandlerFactory struct{}
 
-func (f *HTTP1SvrTransHandlerFactory) NewTransHandler(opt *remote.ServerOption) (remote.ServerTransHandler, error) {
+func (f *HTTP1SvrTransHandlerFactory) NewTransHandler(opt *remote.ServerOption) (*HTTP1Handler, error) {
 	return &HTTP1Handler{}, nil
 }
 
 type HTTP1Handler struct{}
 
-func (h *HTTP1Handler) ProtocolMatch(ctx context.Context, conn net.Conn) error {
+func (h *HTTP1Handler) ProtocolMatch(ctx context.Context, conn netpoll.Conn) error {
 	buf := make([]byte, 8)
 	n, err := conn.Read(buf)
 	if err != nil {
@@ -88,7 +88,7 @@ func (h *HTTP1Handler) ProtocolMatch(ctx context.Context, conn net.Conn) error {
 }
 
 // 解析 HTTP 请求并转为 Kitex RPC 调用
-func (h *HTTP1Handler) Read(ctx context.Context, conn net.Conn, msg remote.Message) (context.Context, error) {
+func (h *HTTP1Handler) Read(ctx context.Context, conn netpoll.Conn, msg remote.Message) (context.Context, error) {
 	// TODO 1: 读取完整 HTTP 请求数据（包含 请求行、Header、Body）
 	// - 从 conn 读取
 	// - 可设置最大长度，避免内存攻击
@@ -117,7 +117,7 @@ func (h *HTTP1Handler) Read(ctx context.Context, conn net.Conn, msg remote.Messa
 }
 
 // 将 Kitex RPC 返回结果封装为标准 HTTP JSON 响应
-func (h *HTTP1Handler) Write(ctx context.Context, conn net.Conn, msg remote.Message) (context.Context, error) {
+func (h *HTTP1Handler) Write(ctx context.Context, conn netpoll.Conn, msg remote.Message) (context.Context, error) {
 	// TODO 1: 判断调用结果是正常返回还是异常
 	// - msg.RPCInfo().Invocation().BizStatusError() != nil → 业务异常
 	// - msg.RPCInfo().Stats().Error() != nil → 框架异常
@@ -146,13 +146,13 @@ func (h *HTTP1Handler) Write(ctx context.Context, conn net.Conn, msg remote.Mess
 	return ctx, nil
 }
 
-func (h *HTTP1Handler) OnRead(ctx context.Context, conn net.Conn) error {
+func (h *HTTP1Handler) OnRead(ctx context.Context, conn netpoll.Conn) error {
 	return nil
 }
 
-func (h *HTTP1Handler) OnInactive(ctx context.Context, conn net.Conn) {}
+func (h *HTTP1Handler) OnInactive(ctx context.Context, conn netpoll.Conn) {}
 
-func (h *HTTP1Handler) OnError(ctx context.Context, err error, conn net.Conn) {}
+func (h *HTTP1Handler) OnError(ctx context.Context, err error, conn netpoll.Conn) {}
 
 func (h *HTTP1Handler) OnMessage(ctx context.Context, args, result remote.Message) (context.Context, error) {
 	return ctx, nil
@@ -162,6 +162,6 @@ func (h *HTTP1Handler) SetPipeline(pipeline *remote.TransPipeline) {}
 
 func (h *HTTP1Handler) SetInvokeHandleFunc(endpoint endpoint.Endpoint) {}
 
-func (h *HTTP1Handler) OnActive(ctx context.Context, conn net.Conn) (context.Context, error) {
+func (h *HTTP1Handler) OnActive(ctx context.Context, conn netpoll.Conn) (context.Context, error) {
 	return ctx, nil
 }
