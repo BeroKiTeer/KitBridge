@@ -96,12 +96,12 @@ func (h *HTTP1Handler) Read(ctx context.Context, conn net.Conn, msg remote.Messa
 	hertzServer := hertzHttp1.NewServer()
 
 	c := hertzServer.Core.GetCtxPool().Get().(*app.RequestContext)
-	err = c.BindAndValidate(msg.Data())
+	err := c.BindAndValidate(msg.Data())
 	if err != nil {
 		return ctx, err
 	}
 
-	err := hertzServer.Serve(ctx, hertzConn)
+	err = hertzServer.Serve(ctx, hertzConn)
 	if err != nil {
 		return ctx, err
 	}
