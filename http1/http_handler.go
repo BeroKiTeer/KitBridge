@@ -9,10 +9,14 @@ import (
 	"fmt"
 	"github.com/BeroKiTeer/KitBridge/kitex_gen/thrift/stability"
 	"github.com/bytedance/gopkg/cloud/metainfo"
+	"reflect"
+
+	//"github.com/bytedance/gopkg/cloud/metainfo"
 	"github.com/cloudwego/kitex/pkg/endpoint"
 	"github.com/cloudwego/kitex/pkg/klog"
 	"github.com/cloudwego/kitex/pkg/remote"
 	"github.com/cloudwego/kitex/pkg/remote/transmeta"
+	"github.com/cloudwego/kitex/pkg/rpcinfo"
 	"github.com/cloudwego/kitex/pkg/serviceinfo"
 	"github.com/cloudwego/netpoll"
 	"net"
@@ -123,6 +127,7 @@ func (h *HTTP1Handler) ProtocolMatch(ctx context.Context, conn net.Conn) error {
 
 // 解析 HTTP 请求并转为 Kitex RPC 调用
 func (h *HTTP1Handler) Read(ctx context.Context, conn net.Conn, msg remote.Message) (context.Context, error) {
+	fmt.Println("HelloWorld")
 	// ---------------------------------------------------------
 	// 1: 利用 parser.parseRequestLine() 解析请求行
 	// - 获取 method / serviceName / methodName
@@ -152,10 +157,11 @@ func (h *HTTP1Handler) Read(ctx context.Context, conn net.Conn, msg remote.Messa
 	// - Content-Length 决定 body 大小
 	// - 返回值为 []byte 类型 JSON
 	// ---------------------------------------------------------
-	if contentLength <= 0 || contentLength > 10*1024*1024 { // 限制最大 10MB
-		return ctx, fmt.Errorf("invalid content length: %d", contentLength)
-	}
+	//if contentLength <= 0 || contentLength > 10*1024*1024 { // 限制最大 10MB
+	//	return ctx, fmt.Errorf("invalid content length: %d", contentLength)
+	//}
 	bodyBytes, err := reader.Next(contentLength)
+	fmt.Println(string(bodyBytes))
 	if err != nil {
 		return ctx, fmt.Errorf("failed to read body: %w", err)
 	}
@@ -177,18 +183,70 @@ func (h *HTTP1Handler) Read(ctx context.Context, conn net.Conn, msg remote.Messa
 	}
 
 	// 5: JSON body → Thrift 请求 struct
-	args := msg.Data().(*stability.STRequest)
+	//fmt.Println(msg.Data())
+	//args := msg.Data().(*stability.STRequest)
 
-	// JSON 反序列化
-	if err := json.Unmarshal(bodyBytes, args); err != nil {
-		return ctx, fmt.Errorf("failed to unmarshal body to thrift args: %w", err)
+	//ss := ""
+	//// JSON 反序列化
+	//if err := json.Unmarshal(bodyBytes, &ss); err != nil {
+	//	return ctx, fmt.Errorf("failed to unmarshal body to thrift args: %w", err)
+	//}
+	//msg.NewData(ss)
+	svcInfo := h.opt.SvcSearcher.SearchService(serviceName, methodName, true)
+	mtInfo, ok := svcInfo.Methods[methodName]
+	if !ok {
+		return ctx, fmt.Errorf("method not found: %s", mtInfo)
 	}
+	args := mtInfo.NewArgs()
+	//if err := BindJSONToArgs(msg, methodName, bodyBytes); err != nil {
+	//	return ctx, fmt.Errorf("bind JSON to thrift args failed: %w", err)
+	//}
+
+	if json.Unmarshal(bodyBytes, args) != nil {
+		return ctx, fmt.Errorf("failed to unmarshal body: %w", err)
+	}
+
+	ctx = context.WithValue(ctx, "http_args", args)
+	ctx = context.WithValue(ctx, "method_info", mtInfo)
 
 	return ctx, nil
 }
 
+// 方法名到请求结构体构造器的注册表
+var methodArgType = map[string]func() interface{}{
+	"testSTReq": func() interface{} { return &stability.STRequest{} },
+	// 可添加更多方法注册： "getUser": func() interface{} { return &user.GetUserRequest{} },
+}
+
+// BindJSONToArgs 将 JSON body 反序列化为对应 method 的 Thrift 参数结构体，并注入到 msg.Data()
+func BindJSONToArgs(msg remote.Message, methodName string, body []byte) (interface{}, error) {
+	// 查找结构体构造函数
+	constructor, ok := methodArgType[methodName]
+	if !ok {
+		return nil, fmt.Errorf("BindJSONToArgs: unsupported method: %s", methodName)
+	}
+
+	// 构造结构体实例
+	args := constructor()
+
+	// 反序列化 JSON 到 struct
+	if err := json.Unmarshal(body, args); err != nil {
+		return nil, fmt.Errorf("BindJSONToArgs: json unmarshal failed: %w", err)
+	}
+
+	// 通过反射把 args 的值设置到 msg.Data()
+	if msg.Data() != nil {
+		vDst := reflect.ValueOf(msg.Data()).Elem()
+		vSrc := reflect.ValueOf(args).Elem()
+		vDst.Set(vSrc)
+	}
+
+	return args, nil
+}
+
 // 将 Kitex RPC 返回结果封装为标准 HTTP JSON 响应
 func (h *HTTP1Handler) Write(ctx context.Context, conn net.Conn, msg remote.Message) (context.Context, error) {
+	fmt.Println("HelloWorldzzzz")
 	// 1: 判断调用结果是正常返回还是异常
 	var (
 		code    int32
@@ -208,6 +266,7 @@ func (h *HTTP1Handler) Write(ctx context.Context, conn net.Conn, msg remote.Mess
 		code = 200
 		message = "success"
 		data = msg.Data()
+		fmt.Println("sb")
 	}
 
 	// 2: 构造标准 JSON 响应结构：
@@ -250,6 +309,34 @@ func (h *HTTP1Handler) Write(ctx context.Context, conn net.Conn, msg remote.Mess
 }
 
 func (h *HTTP1Handler) OnRead(ctx context.Context, conn net.Conn) error {
+
+	fmt.Println("---->OnREAD")
+	// 1. 创建 RPCInfo（包含服务名、方法名、调用信息等）
+
+	rpcInfo := rpcinfo.NewRPCInfo(
+		rpcinfo.NewEndpointInfo("", "", nil, nil), // from
+		rpcinfo.NewEndpointInfo("", "", nil, nil), // to
+		rpcinfo.NewInvocation("", ""),             // 空调用，后续 Read 中会填充
+		rpcinfo.NewRPCConfig(),
+		rpcinfo.NewRPCStats(),
+	)
+
+	// 2. 构造请求 msg（类型是 remote.Call），用来承载请求数据
+	req := remote.NewMessageWithNewer(h.svcInfo, h.svcSearcher, rpcInfo, remote.Call, remote.Server)
+	req.SetPayloadCodec(h.opt.PayloadCodec)
+	res := remote.NewMessage(nil, h.svcInfo, rpcInfo, remote.Reply, remote.Server)
+	var err error
+	ctx, err = h.transPipe.Read(ctx, conn, req)
+	if err != nil {
+		return err
+	}
+	
+	ctx, err = h.transPipe.OnMessage(ctx, req, res)
+	if err != nil {
+		return err
+	}
+	_, err = h.transPipe.Write(ctx, conn, res)
+
 	return nil
 }
 
@@ -258,12 +345,35 @@ func (h *HTTP1Handler) OnInactive(ctx context.Context, conn net.Conn) {}
 func (h *HTTP1Handler) OnError(ctx context.Context, err error, conn net.Conn) {}
 
 func (h *HTTP1Handler) OnMessage(ctx context.Context, args, result remote.Message) (context.Context, error) {
+	// 从 ctx 拿出在 Read 中保存的参数
+	rawArgs := ctx.Value("http_args")
+	methodInfo := ctx.Value("method_info").(serviceinfo.MethodInfo)
+	//fmt.Printf(result.RPCInfo().Invocation().ServiceName())
+	//fmt.Println()
+
+	if rawArgs == nil || methodInfo == nil {
+		return ctx, errors.New("http_args or method_info not found in ctx")
+	}
+	//res := methodInfo.NewResult()
+
+	// 重新构建新的 Message 用于处理
+	// newArgsMsg := remote.NewMessage(rawArgs, h.svcInfo, args.RPCInfo(), remote.Call, remote.Server)
+	// newResultMsg := remote.NewMessage(res, h.svcInfo, args.RPCInfo(), remote.Reply, remote.Server)
+	err := h.handlerFunc(ctx, rawArgs, result)
+
+	if err != nil {
+		return nil, err
+	}
 	return ctx, nil
 }
 
-func (h *HTTP1Handler) SetPipeline(pipeline *remote.TransPipeline) {}
+func (h *HTTP1Handler) SetPipeline(pipeline *remote.TransPipeline) {
+	h.transPipe = pipeline
+}
 
-func (h *HTTP1Handler) SetInvokeHandleFunc(endpoint endpoint.Endpoint) {}
+func (h *HTTP1Handler) SetInvokeHandleFunc(endpoint endpoint.Endpoint) {
+	h.handlerFunc = endpoint
+}
 
 func (h *HTTP1Handler) OnActive(ctx context.Context, conn net.Conn) (context.Context, error) {
 	return ctx, nil
